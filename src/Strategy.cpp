@@ -55,6 +55,7 @@ optional<Order> bestOpenOrder(const vector<Order>& openOrders, Side side) {
 OrderCommand makeAddOrder(Side side, int quantity, Price limitPrice) {
     OrderCommand command{};
     command.type = OrderCommandType::AddOrder;
+    command.owner_id = 1;
     command.side = side;
     command.quantity = quantity;
     command.limit_price = limitPrice;

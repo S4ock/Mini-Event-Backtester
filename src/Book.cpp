@@ -1,6 +1,7 @@
-#include "include\Book.hpp"
+#include "Book.hpp"
 using namespace std;
 
+Book::Book() = default;
 
 double Book::bestBid() const {
     if (bidLevels_.empty()) {
@@ -16,7 +17,7 @@ double Book::bestAsk() const {
     return askLevels_.begin()->first;
 }
 
-void Book::addOrder(const Order& order) {
+bool Book::addOrder(const Order& order) {
     if (order.side == Side::Buy) {
         bidLevels_[order.limit_price].orders.insert(order);
         orderMap_[order.id] = {true, bidLevels_.find(order.limit_price), bidLevels_[order.limit_price].orders.find(order)};
@@ -24,6 +25,7 @@ void Book::addOrder(const Order& order) {
         askLevels_[order.limit_price].orders.insert(order);
         orderMap_[order.id] = {false, askLevels_.find(order.limit_price), askLevels_[order.limit_price].orders.find(order)};
     }
+    return true;
 }
 
 bool Book::modifyOrder(int orderId, int new_limit_price, int new_quantity) {

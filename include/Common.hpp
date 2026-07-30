@@ -1,5 +1,4 @@
 #pragma once
-#include "src\main.cpp"
 #include <set>
 #include <map>
 using namespace std;
@@ -7,7 +6,7 @@ using Time=long long;
 using OrderId=int;
 using OwnerId=int;
 using Price=double;
-Price fee_rate=0.0002;
+inline constexpr Price fee_rate = 0.0002;
 enum class Side{
     Buy,
     Sell
@@ -83,7 +82,7 @@ enum class OrderCommandType {
 struct OrderCommand {
     OrderCommandType type;
     Time ts=-1;
-    OwnerId owner_id = 0;
+    OwnerId owner_id = 0; //0-external order , 1-internal order
     Side side = Side::Buy;
     int quantity = 0;
     Price limit_price = 0.0;
@@ -92,11 +91,13 @@ struct OrderCommand {
     int new_quantity = 0;
     Price new_limit_price = 0.0;
     bool operator<(const OrderCommand& other) const {
-        if(ts!=other.ts)
-            return ts<other.ts;
-        if(type!=other.type)
-            return type<other.type;
-        return order_id<other.order_id;
+        if (ts != other.ts)
+            return ts < other.ts;
+
+        if (quantity != other.quantity)
+            return quantity < other.quantity;
+
+        return order_id < other.order_id;
     }
 };
 
@@ -104,6 +105,7 @@ struct OrderCommand {
 
 enum class OrderEventType {
     OrderAccepted,
+    OrderRejected,
     OrderFilled,
     OrderCancelled,
     OrderModified,
@@ -123,5 +125,4 @@ struct OrderEvent {
     int remaining_quantity = 0;
 
     Price price = 0.0;
-    Price limit_price = 0.0;
 };

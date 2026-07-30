@@ -1,34 +1,39 @@
 #pragma once
 #include <vector>
 #include <queue>
+#include <optional>
+#include <string>
+#include <unordered_map>
 using namespace std;
 #include "Book.hpp"
 #include "Portfolio.hpp"
 #include "Strategy.hpp"
 
-class Simulator{
+class Backtest {
     public:
-        Simulator(string& historicalDataPath,Book& book,Strategy& strategy,Time endTime,Time strategyLatency);
+        Backtest(string& historicalDataPath,Book& book,Strategy& strategy,Time startTime,Time endTime,Time strategyLatency);
         void run();
         void printResults();
     private:
         void load_historical_data(string historicalDataPath);
         void scheduleEvent(const OrderCommand& event);
 
-        void scheduleOrderCommand(Time now, const OrderCommand& command);
-        void AddOrder(Time now,const Order& order);
-        void ModifyOrder(Time now,const Order& order);
-        void CancelOrder(Time now,const Order& order);
-        void applyFill(Time now,const Fill& fill);
+        void applyOrderCommand(Time now, const OrderCommand& command);
+        bool AddOrder(Time now,const OrderCommand& command);
+        bool ModifyOrder(Time now,const OrderCommand& command);
+        bool CancelOrder(Time now,const OrderCommand& command);
+        optional<OrderEvent> applyFill(Time now,const Fill& fill);
 
         string historicalDataPath_;
         Time now_{0};
+        Time startTime_{0};
         Time endTime_{0};
         Time strategyLatency_{1};
         Book book_;
         Strategy& strategy_;
         Portfolio portfolio_;
         OrderId nextOrderId_{1};
-        priority_queue<OrderCommand,std::vector<OrderCommand>,OrderCommand> eventPool_;
+        priority_queue<OrderCommand> eventPool_;
         vector<OrderEvent> recent_order_events_; 
+        unordered_map<OrderId,int> orderQuantities_; //used for the modify command
 };  

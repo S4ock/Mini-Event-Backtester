@@ -1,14 +1,14 @@
 #pragma once
 #include <set>
+#include <vector>
 #include <unordered_map>
-#include "src\main.cpp"
 #include "Common.hpp"
 using namespace std;
 
 class Book{
     public:
         Book();
-        void addOrder(const Order& order);
+        bool addOrder(const Order& order);
         bool modifyOrder(int orderId,int new_limit_price,int new_quantity);
         bool cancelOrder(int orderId);
         Price bestBid() const;

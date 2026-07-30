@@ -1,5 +1,7 @@
-#include "include\Portfolio.hpp"
+#include "Portfolio.hpp"
 using namespace std;
+
+Portfolio::Portfolio() = default;
 
 int Portfolio::getPosition() const {
     return position_;
