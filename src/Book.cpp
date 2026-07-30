@@ -99,13 +99,17 @@ vector<Fill> Book::checkCross(Time now, Order order){
             }
             for(auto elem: level.orders){
                 if(elem.quantity <= order.quantity){
-                    Fill fill{order.symbol, now, elem.id, elem.owner_id, elem.side, elem.quantity, price};
+                    Fill fill{now, elem.id, elem.owner_id, elem.side, elem.quantity, price};
+                    Fill fill1{now, order.id, order.owner_id, order.side, elem.quantity, price};
                     ans.push_back(fill);
+                    ans.push_back(fill1);
                     order.quantity -= elem.quantity;
                     cancelOrder(elem.id);
                 } else {
-                    Fill fill{order.symbol, now, elem.id, elem.owner_id, elem.side, order.quantity, price};
+                    Fill fill{now, elem.id, elem.owner_id, elem.side, order.quantity, price};
+                    Fill fill1{now, order.id, order.owner_id, order.side, order.quantity, price};
                     ans.push_back(fill);
+                    ans.push_back(fill1);
                     order.quantity = 0;
                     cancelOrder(order.id);
                 }
@@ -128,13 +132,17 @@ vector<Fill> Book::checkCross(Time now, Order order){
             }
             for(auto elem: level.orders){
                 if(elem.quantity <= order.quantity){
-                    Fill fill{order.symbol, now, elem.id, elem.owner_id, elem.side, elem.quantity, price};
+                    Fill fill{now, elem.id, elem.owner_id, elem.side, elem.quantity, price};
+                    Fill fill1{now, order.id, order.owner_id, order.side, elem.quantity, price};
                     ans.push_back(fill);
+                    ans.push_back(fill1);
                     order.quantity -= elem.quantity;
                     cancelOrder(elem.id);
                 } else {
-                    Fill fill{order.symbol, now, elem.id, elem.owner_id, elem.side, order.quantity, price};
+                    Fill fill{now, elem.id, elem.owner_id, elem.side, order.quantity, price};
+                    Fill fill1{now, order.id, order.owner_id, order.side, order.quantity, price};
                     ans.push_back(fill);
+                    ans.push_back(fill1);
                     order.quantity = 0;
                     cancelOrder(order.id);
                 }

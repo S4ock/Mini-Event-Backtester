@@ -3,6 +3,11 @@
 #include <set>
 #include <map>
 using namespace std;
+using Time=long long;
+using OrderId=int;
+using OwnerId=int;
+using Price=double;
+Price fee_rate=0.0002;
 enum class Side{
     Buy,
     Sell
@@ -10,11 +15,10 @@ enum class Side{
 struct Order {
     OrderId id;
     int owner_id;
-    string symbol;
     Time ts;
     Side side;
     int quantity;
-    double limit_price;
+    Price limit_price;
 
     bool operator<(const Order& other) const {
         if (ts != other.ts)
@@ -27,24 +31,29 @@ struct Order {
     }
 };
 
+struct CompareById {
+    bool operator()(const Order& a, const Order& b) const {
+        return a.id < b.id;
+    }
+};
+
 struct BookLevel {
     set<Order> orders;
 };
 
 struct OrderLocation {
     bool isBid;
-    map<double, BookLevel>::iterator levelIt;
+    map<Price, BookLevel>::iterator levelIt;
     set<Order>::iterator orderIt;
 };
 
 struct Fill{
-    string symbol;
     Time ts;
     OrderId order_id;
     OwnerId owner_id;
     Side side;
     int quantity;
-    double price;
+    Price price;
 };
 
 struct AddOrder{
@@ -56,10 +65,63 @@ struct ModifyOrder{
     Time sent_ts;
     OrderId order_id;
     int new_quantity;
-    double new_limit_price;
+    Price new_limit_price;
 };
 
 struct CancelOrder{
     Time sent_ts;
     OrderId order_id;
+};
+
+
+enum class OrderCommandType {
+    AddOrder,
+    CancelOrder,
+    ModifyOrder
+};
+
+struct OrderCommand {
+    OrderCommandType type;
+    Time ts=-1;
+    OwnerId owner_id = 0;
+    Side side = Side::Buy;
+    int quantity = 0;
+    Price limit_price = 0.0;
+
+    OrderId order_id = 0;
+    int new_quantity = 0;
+    Price new_limit_price = 0.0;
+    bool operator<(const OrderCommand& other) const {
+        if(ts!=other.ts)
+            return ts<other.ts;
+        if(type!=other.type)
+            return type<other.type;
+        return order_id<other.order_id;
+    }
+};
+
+
+
+enum class OrderEventType {
+    OrderAccepted,
+    OrderFilled,
+    OrderCancelled,
+    OrderModified,
+    OrderCancelFailed,
+    OrderModifyFailed
+};
+
+struct OrderEvent {
+    Time ts;
+    OrderEventType type;
+
+    OwnerId owner_id = 0;
+    OrderId order_id = 0;
+    Side side = Side::Buy;
+
+    int quantity = 0;
+    int remaining_quantity = 0;
+
+    Price price = 0.0;
+    Price limit_price = 0.0;
 };

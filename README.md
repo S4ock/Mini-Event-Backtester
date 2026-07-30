@@ -1,120 +1,108 @@
 # Mini Event Backtester
 
-A simple C++ project that implements the core building blocks of an event-driven trading backtester. It includes basic market data structures, order representations, fill processing, and position/equity tracking.
+Mini Event Backtester is a compact C++ project demonstrating the core building blocks of an event-driven trading backtester. It is intended as a small, easy-to-read foundation for learning how market data, orders, fills, and portfolio accounting interact in a backtesting environment.
 
-## Features
+This README describes the repository layout, how to build and run the example, and where to look in the code to extend the project.
 
-- Market data snapshots
-  - Best bid
-  - Best ask
-  - Bid-ask spread
-  - Mid price
-- Order types
-  - Add Order
-  - Modify Order
-  - Cancel Order
-- Trade fill processing
-- Position tracking
-- Cash balance tracking
-- Equity calculation
-- Simulated order latency
+## Key Features
 
-## Project Structure
+- Simple order book representation (bid / ask levels)
+- Limit order events: add, modify, cancel
+- Trade fill processing and position/cash accounting
+- Equity calculation and basic latency simulation
+- Small, self-contained C++ codebase intended for education and experimentation
 
-| Structure | Description |
-|-----------|-------------|
-| `BookLevel` | Represents one price level in the order book |
-| `BookSnapshot` | Snapshot of bids and asks for one symbol |
-| `Order` | Limit order information |
-| `AddOrder` | Event representing a new order |
-| `ModifyOrder` | Event representing an order modification |
-| `CancelOrder` | Event representing an order cancellation |
-| `Fill` | Executed trade information |
-| `PositionState` | Tracks current position and cash |
+## Repository layout
 
-## Utility Functions
+- `include/`
+  - `Backtest.hpp`  — Core backtest types and helpers
+  - `Book.hpp`      — Order book and market snapshot types
+  - `Common.hpp`    — Common utilities and type aliases
+  - `Portfolio.hpp` — Position and cash accounting (equity calculation)
+  - `Strategy.hpp`  — Simple strategy interface / helpers
 
-### Market Data
+- `src/`
+  - `Book.cpp`      — Implementation of order book and market helpers
+  - `Portfolio.cpp` — Portfolio / position accounting implementation
+  - `Strategy.cpp`  — Example strategy logic
+  - `main.cpp`      — Small example that wires components together and runs a demo
 
-- `best_bid()`
-- `best_ask()`
-- `spread()`
-- `mid_price()`
+- `.git/` and other project files
 
-### Trading
-
-- `signed_quantity()`
-- `apply_fill()`
-- `equity()`
-- `arrival_time()`
-
-## Example
-
-The program constructs a sample order book:
-
-| Bid | Qty | Ask | Qty |
-|-----:|----:|----:|----:|
-|100.00|50|100.05|40|
-|99.95|75|100.10|60|
-|99.90|100|100.15|90|
-
-It then demonstrates:
-
-1. Computing market statistics.
-2. Creating a buy order.
-3. Processing fills.
-4. Updating portfolio state.
+Files above are small and organized so that each component (book, portfolio, strategy) is easy to read and extend.
 
 ## Build
 
-Using **g++**:
+A C++20-compatible compiler is required.
+
+Linux / macOS (g++/clang):
 
 ```bash
-g++ -std=c++20 -O2 main.cpp -o main
+g++ -std=c++20 -O2 -Iinclude src/*.cpp -o backtester
 ```
 
-Run:
-
-```bash
-./main
-```
-
-On Windows PowerShell:
+Windows (MSVC via Developer Command Prompt):
 
 ```powershell
-.\main.exe
+cl /std:c++20 /O2 /Iinclude src\*.cpp /Fe:backtester.exe
 ```
 
-## Current Status
+Windows (MinGW / g++):
 
-Implemented:
+```powershell
+g++ -std=c++20 -O2 -Iinclude src\*.cpp -o backtester.exe
+```
 
-- ✅ Market data representation
-- ✅ Order representations
-- ✅ Fill processing
-- ✅ Position accounting
-- ✅ Cash accounting
-- ✅ Equity calculation
-- ✅ Latency helper
+## Run
 
-Planned Improvements:
+From the repository root after building:
 
-- Event queue
-- Order book simulator
-- Matching engine
-- Partial fills
-- Multiple symbols
-- Portfolio management
-- PnL statistics
-- CSV market data loader
-- Performance metrics
-- Strategy interface
+Linux/macOS:
+
+```bash
+./backtester
+```
+
+Windows PowerShell:
+
+```powershell
+.\backtester.exe
+```
+
+The example program runs a tiny scenario demonstrating market snapshots, order creation, fills, and portfolio updates. Output is printed to stdout.
+
+## Where to look to extend functionality
+
+- To extend market handling, order matching, or a more complete matching engine, start in `src/Book.cpp` and `include/Book.hpp`.
+- To implement event queuing or richer event-driven flows, add an event queue manager and drive events from `main.cpp` or a new `Engine` class.
+- To wire strategy code into the loop for automated testing, extend `include/Strategy.hpp` and `src/Strategy.cpp`.
+- To add CSV playback of market data, create a small loader and feed book snapshots into the event loop.
+
+## Ideas & Planned Improvements
+
+- Full event queue with timestamps and ordering
+- Matching engine supporting partial fills and order matching by price/time
+- Support for multiple instruments and portfolio-level risk checks
+- CSV/Feeder for historical data playback
+- PnL/statistics reporting and performance metrics
 
 ## Requirements
 
-- C++20 compatible compiler
-- GCC 10+ (or equivalent)
+- C++20 compiler (g++ 10+/Clang/MSVC with C++20 support)
 
-## Author
+## Contributing
 
-Mini Event Backtester implemented in C++ as a foundation for event-driven trading strategy simulation.
+This repository is small and educational. Suggestions, small fixes, and PRs that improve documentation or add simple, well-documented functionality are welcome.
+
+When contributing:
+- Keep changes small and focused
+- Add tests or examples for non-trivial features
+- Update this README when adding new top-level features
+
+## License
+
+This project does not include a license file. Add a LICENSE file to specify reuse terms (e.g., MIT, Apache-2.0) if you plan to share the code publicly.
+
+## Contact
+
+For questions about the code layout or suggestions for improvements, leave an issue or contact the repository owner.
