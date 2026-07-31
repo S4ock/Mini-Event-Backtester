@@ -9,6 +9,18 @@ using namespace std;
 #include "Portfolio.hpp"
 #include "Strategy.hpp"
 
+struct OrderCommandCompare {
+    bool operator()(const OrderCommand& lhs, const OrderCommand& rhs) const {
+        if (lhs.ts != rhs.ts) {
+            return lhs.ts > rhs.ts;
+        }
+        if (lhs.quantity != rhs.quantity) {
+            return lhs.quantity > rhs.quantity;
+        }
+        return lhs.order_id > rhs.order_id;
+    }
+};
+
 class Backtest {
     public:
         Backtest(string& historicalDataPath,Book& book,Strategy& strategy,Time startTime,Time endTime,Time strategyLatency);
@@ -29,11 +41,11 @@ class Backtest {
         Time startTime_{0};
         Time endTime_{0};
         Time strategyLatency_{1};
-        Book book_;
+        Book& book_;
         Strategy& strategy_;
         Portfolio portfolio_;
         OrderId nextOrderId_{1};
-        priority_queue<OrderCommand> eventPool_;
+        priority_queue<OrderCommand, vector<OrderCommand>, OrderCommandCompare> eventPool_;
         vector<OrderEvent> recent_order_events_; 
         unordered_map<OrderId,int> orderQuantities_; //used for the modify command
 };  

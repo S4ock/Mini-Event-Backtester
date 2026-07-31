@@ -13,9 +13,9 @@ int main(){
     Book book;
     Portfolio portfolio;
     Strategy strategy;
-    string historicalDataPath = "data/AMZN_2012-06-21_34200000_57600000_message_10.csv";
-    Time startTime = 34200000000; 
-    Time endTime = 36200000000;
+    string historicalDataPath = "data/SPY_2012-06-21_34200000_37800000_message_50.csv";
+    Time startTime = 34200017459617;
+    Time endTime = 38599959359650;
     Time strategyLatency = 1000000;
     Backtest backtest(historicalDataPath, book, strategy, startTime, endTime, strategyLatency);
     backtest.run();

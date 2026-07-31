@@ -47,7 +47,7 @@ void Backtest::load_historical_data(string historicalDataPath) {
 
         // Price
         getline(ss, cell, ',');
-        command.limit_price = stod(cell);
+        command.limit_price = stod(cell)/10000.0; // convert to dollars
 
         // Direction
         getline(ss, cell, ',');
@@ -78,6 +78,8 @@ bool Backtest::AddOrder(Time now, const OrderCommand& command) {
     order.side = command.side;
     order.quantity = command.quantity;
     order.limit_price = command.limit_price;
+    order.id = command.order_id;
+    order.ts = now;
     bool worked=book_.addOrder(order);
     orderQuantities_[order.id] = order.quantity;
     if(worked && command.owner_id==1)portfolio_.addOrder(order);
@@ -102,6 +104,9 @@ bool Backtest::CancelOrder(Time now, const OrderCommand& command) {
 }
 optional<OrderEvent> Backtest::applyFill(Time now, const Fill& fill) {
     orderQuantities_[fill.order_id] -= fill.quantity;
+    if(orderQuantities_[fill.order_id] <= 0) {
+        orderQuantities_.erase(fill.order_id);
+    }
     if(fill.owner_id==1){
         portfolio_.applyFill(fill);
         return optional<OrderEvent>{OrderEvent{now, OrderEventType::OrderFilled, fill.owner_id, fill.order_id, fill.side, fill.quantity, orderQuantities_[fill.order_id], fill.price}};
@@ -159,20 +164,22 @@ void Backtest::applyOrderCommand(Time now, const OrderCommand& command) {
 }
 void Backtest::run() {
     cout<<"Started Backtest from "<<startTime_<<" to "<<endTime_<<endl;
-    for(int i=startTime_;i<=endTime_;i++){
+    for(Time i=startTime_;i<=endTime_;i=eventPool_.empty()?endTime_+1:eventPool_.top().ts){
         recent_order_events_.clear();
         now_=i;
         while(!eventPool_.empty() && eventPool_.top().ts<=now_){
             OrderCommand command=eventPool_.top();
             eventPool_.pop();
             applyOrderCommand(now_,command);
-            auto new_commands=strategy_.onTimeMove(now_,book_,portfolio_,recent_order_events_);
-            if(new_commands.has_value()){
-                cout<<now_<<endl;
-                for(auto& new_command:new_commands.value()){
-                    new_command.ts+=strategyLatency_; // maybe i will also add a random latency on top of the strategy latency to simulate network latency, but for now i will just use the strategy latency
-                    eventPool_.push(new_command);
+        }
+        auto new_commands=strategy_.onTimeMove(now_,book_,portfolio_,recent_order_events_);
+        if(new_commands.has_value()){
+            for(auto& new_command:new_commands.value()){
+                new_command.ts = now_ + strategyLatency_;
+                if(new_command.type==OrderCommandType::AddOrder){
+                    new_command.order_id=nextOrderId_++;
                 }
+                eventPool_.push(new_command);
             }
         }
     }
@@ -182,6 +189,7 @@ void Backtest::printResults() {
     cout << "Final Cash: " << portfolio_.getCash() << endl;
     cout << "Final Position: " << portfolio_.getPosition() << endl;
     cout << "Open Orders: " << endl;
+    cout<< "Final estimated money: "<<portfolio_.getCash() + portfolio_.getPosition() *book_.bestBid()<<endl;
     for (const auto& order : portfolio_.getOpenOrders()) {
         cout << "Order ID: " << order.id
              << ", Side: " << (order.side == Side::Buy ? "Buy" : "Sell")

@@ -91,29 +91,52 @@ bool Book::cancelOrder(int orderId) {
 }
 
 vector<Fill> Book::checkCross(Time now, Order order){
+    struct PendingModify {
+        OrderId id;
+        Price price;
+        int quantity;
+    };
+
+    vector<Fill> ans;
+    vector<PendingModify> pendingModifies;
+    vector<OrderId> pendingCancels;
+
+    auto applyPendingChanges = [&](const OrderId incomingId) {
+        for (const auto& pending : pendingModifies) {
+            modifyOrder(pending.id, pending.price, pending.quantity);
+        }
+        for (const auto& id : pendingCancels) {
+            cancelOrder(id);
+        }
+        if (incomingId > 0) {
+            cancelOrder(incomingId);
+        }
+    };
+
     if (order.side==Side::Buy){
-        vector<Fill> ans;
         for (auto it = askLevels_.begin(); it != askLevels_.end(); ++it) {
             double price = it->first;
             BookLevel& level = it->second;
             if(price > order.limit_price) {
                 break;
             }
-            for(auto elem: level.orders){
+            for(const auto& elem: level.orders){
                 if(elem.quantity <= order.quantity){
                     Fill fill{now, elem.id, elem.owner_id, elem.side, elem.quantity, price};
                     Fill fill1{now, order.id, order.owner_id, order.side, elem.quantity, price};
                     ans.push_back(fill);
                     ans.push_back(fill1);
                     order.quantity -= elem.quantity;
-                    cancelOrder(elem.id);
+                    pendingCancels.push_back(elem.id);
                 } else {
-                    Fill fill{now, elem.id, elem.owner_id, elem.side, order.quantity, price};
-                    Fill fill1{now, order.id, order.owner_id, order.side, order.quantity, price};
+                    const int fillQty = order.quantity;
+                    Fill fill{now, elem.id, elem.owner_id, elem.side, fillQty, price};
+                    Fill fill1{now, order.id, order.owner_id, order.side, fillQty, price};
                     ans.push_back(fill);
                     ans.push_back(fill1);
+                    pendingModifies.push_back({elem.id, price, elem.quantity - fillQty});
                     order.quantity = 0;
-                    cancelOrder(order.id);
+                    break;
                 }
                 if(order.quantity == 0) {
                     break;
@@ -123,30 +146,33 @@ vector<Fill> Book::checkCross(Time now, Order order){
                 break;
             }
         }
+
+        applyPendingChanges(order.quantity == 0 ? order.id : 0);
         return ans;
     }else{
-        vector<Fill> ans;
         for (auto it = bidLevels_.rbegin(); it != bidLevels_.rend(); ++it) {
             double price = it->first;
             BookLevel& level = it->second;
             if(price < order.limit_price) {
                 break;
             }
-            for(auto elem: level.orders){
+            for(const auto& elem: level.orders){
                 if(elem.quantity <= order.quantity){
                     Fill fill{now, elem.id, elem.owner_id, elem.side, elem.quantity, price};
                     Fill fill1{now, order.id, order.owner_id, order.side, elem.quantity, price};
                     ans.push_back(fill);
                     ans.push_back(fill1);
                     order.quantity -= elem.quantity;
-                    cancelOrder(elem.id);
+                    pendingCancels.push_back(elem.id);
                 } else {
-                    Fill fill{now, elem.id, elem.owner_id, elem.side, order.quantity, price};
-                    Fill fill1{now, order.id, order.owner_id, order.side, order.quantity, price};
+                    const int fillQty = order.quantity;
+                    Fill fill{now, elem.id, elem.owner_id, elem.side, fillQty, price};
+                    Fill fill1{now, order.id, order.owner_id, order.side, fillQty, price};
                     ans.push_back(fill);
                     ans.push_back(fill1);
+                    pendingModifies.push_back({elem.id, price, elem.quantity - fillQty});
                     order.quantity = 0;
-                    cancelOrder(order.id);
+                    break;
                 }
                 if(order.quantity == 0) {
                     break;
@@ -156,6 +182,8 @@ vector<Fill> Book::checkCross(Time now, Order order){
                 break;
             }
         }
+
+        applyPendingChanges(order.quantity == 0 ? order.id : 0);
         return ans;
     }   
 }
