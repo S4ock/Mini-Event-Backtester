@@ -69,6 +69,7 @@ void Backtest::load_historical_data(string historicalDataPath) {
             break;
         }
         eventPool_.push(command);
+        usedOrderIds_[command.order_id] = true;
     }
 }
 
@@ -87,12 +88,23 @@ bool Backtest::AddOrder(Time now, const OrderCommand& command) {
 }
 
 bool Backtest::ModifyOrder(Time now, const OrderCommand& command) {
-    bool worked=book_.modifyOrder(command.order_id, command.new_limit_price, command.new_quantity);
-    // i do this because the modify command is used to cancel orders as well, so if the owner is external, we need to subtract the new quantity from the existing quantity
-    if(command.owner_id==1)orderQuantities_[command.order_id] = command.new_quantity;
-    else orderQuantities_[command.order_id] = orderQuantities_[command.order_id]-command.new_quantity;
+    int nextQuantity = command.new_quantity;
 
-    if(worked && command.owner_id==1)portfolio_.modifyOrder(command.order_id, command.new_limit_price, orderQuantities_[command.order_id]);
+    if (command.owner_id != 1) {
+        const int cancelledQuantity = max(0, command.new_quantity);
+        const auto currentQuantityIt = orderQuantities_.find(command.order_id);
+        const int currentQuantity = currentQuantityIt != orderQuantities_.end() ? currentQuantityIt->second : 0;
+        nextQuantity = max(0, currentQuantity - cancelledQuantity);
+    }
+
+    bool worked = book_.modifyOrder(command.order_id, command.new_limit_price, nextQuantity);
+
+    if (worked) {
+        orderQuantities_[command.order_id] = nextQuantity;
+        if (command.owner_id == 1) {
+            portfolio_.modifyOrder(command.order_id, command.new_limit_price, nextQuantity);
+        }
+    }
     return worked;
 }
 
@@ -177,7 +189,11 @@ void Backtest::run() {
             for(auto& new_command:new_commands.value()){
                 new_command.ts = now_ + strategyLatency_;
                 if(new_command.type==OrderCommandType::AddOrder){
-                    new_command.order_id=nextOrderId_++;
+                    while(usedOrderIds_.find(nextOrderId_)!=usedOrderIds_.end()){
+                        nextOrderId_++;
+                    }
+                    new_command.order_id=nextOrderId_;
+                    usedOrderIds_[nextOrderId_]=true;
                 }
                 eventPool_.push(new_command);
             }
@@ -188,6 +204,8 @@ void Backtest::run() {
 void Backtest::printResults() {
     cout << "Final Cash: " << portfolio_.getCash() << endl;
     cout << "Final Position: " << portfolio_.getPosition() << endl;
+    cout << "Best bid: " << book_.bestBid() << endl;
+    cout << "Best ask: " << book_.bestAsk() << endl;
     cout << "Open Orders: " << endl;
     cout<< "Final estimated money: "<<portfolio_.getCash() + portfolio_.getPosition() *book_.bestBid()<<endl;
     for (const auto& order : portfolio_.getOpenOrders()) {
@@ -197,4 +215,13 @@ void Backtest::printResults() {
              << ", Limit Price: " << order.limit_price
              << endl;
     }
+    /*cout << "Fill History: " << endl;
+    for (const auto& fill : portfolio_.getOrderHistory()) {
+        cout << "Time: " << fill.ts
+             << ", Order ID: " << fill.order_id
+             << ", Side: " << (fill.side == Side::Buy ? "Buy" : "Sell")
+             << ", Quantity: " << fill.quantity
+             << ", Price: " << fill.price
+             << endl;
+    }*/
 }

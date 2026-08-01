@@ -1,10 +1,19 @@
 #include "../include/Strategy.hpp"
 #include <algorithm>
 #include <cmath>
+#include <deque>
 using namespace std;
+
+constexpr int kMaxPosition = 10;
+constexpr int kBaseQuoteQty = 3;
+constexpr size_t kHistoryWindow = 24;
 
 Price clampPrice(Price price) {
     return max<Price>(0.0, price);
+}
+
+int clampInt(int value, int low, int high) {
+    return max(low, min(value, high));
 }
 
 Price safeMid(Price bestBid, Price bestAsk, const RunningMean& midMean) {
@@ -25,6 +34,33 @@ Price safeMid(Price bestBid, Price bestAsk, const RunningMean& midMean) {
     }
 
     return 0.0;
+}
+
+Price shortTermMean(const deque<Price>& midHistory) {
+    if (midHistory.empty()) {
+        return 0.0;
+    }
+
+    const size_t sampleCount = min<size_t>(5, midHistory.size());
+    Price total = 0.0;
+    for (size_t i = midHistory.size() - sampleCount; i < midHistory.size(); ++i) {
+        total += midHistory[i];
+    }
+
+    return total / static_cast<Price>(sampleCount);
+}
+
+Price recentVolatility(const deque<Price>& midHistory) {
+    if (midHistory.size() < 2) {
+        return 0.0;
+    }
+
+    Price totalMove = 0.0;
+    for (size_t i = 1; i < midHistory.size(); ++i) {
+        totalMove += fabs(midHistory[i] - midHistory[i - 1]);
+    }
+
+    return totalMove / static_cast<Price>(midHistory.size() - 1);
 }
 
 optional<Order> bestOpenOrder(const vector<Order>& openOrders, Side side) {
@@ -62,61 +98,92 @@ OrderCommand makeAddOrder(Side side, int quantity, Price limitPrice) {
     return command;
 }
 
-OrderCommand makeCancelOrder(OrderId orderId) {
+OrderCommand makeCancelOrder(OrderId orderId, Side side) {
     OrderCommand command{};
     command.type = OrderCommandType::CancelOrder;
+    command.owner_id = 1;
     command.order_id = orderId;
+    command.side = side;
     return command;
 }
 
-OrderCommand makeModifyOrder(OrderId orderId, int quantity, Price limitPrice) {
+OrderCommand makeModifyOrder(OrderId orderId, Side side, int quantity, Price limitPrice) {
     OrderCommand command{};
     command.type = OrderCommandType::ModifyOrder;
+    command.owner_id = 1;
+    command.side = side;
     command.order_id = orderId;
     command.new_quantity = quantity;
     command.new_limit_price = limitPrice;
     return command;
 }
 
-int clampQuantity(int quantity) {
-    return max(1, quantity);
+int buyCapacityForPosition(int position) {
+    return max(0, kMaxPosition - position);
+}
+
+int sellCapacityForPosition(int position) {
+    return max(0, position - 1);
 }
 
 optional<vector<OrderCommand>> Strategy::onTimeMove(const Time& now, const Book& book, const Portfolio& portfolio, const vector<OrderEvent>& recent_events) {
+    static deque<Price> midHistory;
+
     const Price bestBid = book.bestBid();
     const Price bestAsk = book.bestAsk();
     const Price mid = safeMid(bestBid, bestAsk, midMean_);
 
     if (mid > 0.0) {
         midMean_.add(mid);
+        midHistory.push_back(mid);
+        if (midHistory.size() > kHistoryWindow) {
+            midHistory.pop_front();
+        }
     }
 
     const auto openOrders = portfolio.getOpenOrders();
     const int position = portfolio.getPosition();
     const Price cash = portfolio.getCash();
-    const Price runningFair = midMean_.size() >= 3 ? midMean_.mean() : mid;
-    const Price fairValue = runningFair > 0.0 ? (0.65 * mid + 0.35 * runningFair) : mid;
+
+    const Price shortMean = shortTermMean(midHistory);
+    const Price longMean = midMean_.size() >= 3 ? midMean_.mean() : shortMean;
+    const Price fairValue = shortMean > 0.0 && longMean > 0.0 ? (0.7 * shortMean + 0.3 * longMean) : max(shortMean, longMean);
 
     if (fairValue <= 0.0) {
         return nullopt;
     }
 
     const Price tick = max<Price>(0.01, fairValue * 0.0001);
-    const Price spread = (bestBid > 0.0 && bestAsk > 0.0) ? max<Price>(0.0, bestAsk - bestBid) : max<Price>(0.0, fairValue * 0.0015);
-    const Price baseEdge = max<Price>(tick * 1.5, max<Price>(fairValue * 0.00025, spread * 0.18));
+    const Price observedSpread = (bestBid > 0.0 && bestAsk > 0.0) ? max<Price>(0.0, bestAsk - bestBid) : fairValue * 0.0015;
+    const Price volatility = recentVolatility(midHistory);
+    const Price halfSpread = max<Price>(tick * 2.0, max<Price>(observedSpread * 0.28, volatility * 1.75));
 
-    const int maxPosition = 10;
-    const int targetPosition = position >= 0 ? 4 : -4;
-    const int positionDelta = targetPosition - position;
+    int recentBuyFills = 0;
+    int recentSellFills = 0;
+    for (const auto& event : recent_events) {
+        if (event.owner_id != 1 || event.type != OrderEventType::OrderFilled) {
+            continue;
+        }
 
-    Price targetBid = clampPrice(fairValue - baseEdge);
-    Price targetAsk = clampPrice(fairValue + baseEdge);
+        if (event.side == Side::Buy) {
+            recentBuyFills += event.quantity;
+        } else {
+            recentSellFills += event.quantity;
+        }
+    }
+
+    const Price inventoryRatio = clamp<Price>(static_cast<Price>(position) / static_cast<Price>(kMaxPosition), -1.0, 1.0);
+    const Price flowRatio = clamp<Price>(static_cast<Price>(recentBuyFills - recentSellFills) / static_cast<Price>(kMaxPosition), -1.0, 1.0);
+    const Price centerShift = (inventoryRatio * 0.9 + flowRatio * 0.4) * halfSpread;
+
+    Price targetBid = clampPrice(fairValue - halfSpread - centerShift);
+    Price targetAsk = clampPrice(fairValue + halfSpread - centerShift);
 
     if (bestBid > 0.0) {
-        targetBid = max(targetBid, bestBid + tick * 0.5);
+        targetBid = max(targetBid, bestBid + tick);
     }
     if (bestAsk > 0.0) {
-        targetAsk = min(targetAsk, bestAsk - tick * 0.5);
+        targetAsk = min(targetAsk, bestAsk - tick);
     }
 
     if (targetBid >= targetAsk) {
@@ -124,33 +191,47 @@ optional<vector<OrderCommand>> Strategy::onTimeMove(const Time& now, const Book&
         targetAsk = clampPrice(fairValue + tick);
     }
 
-    const Price buyBudget = cash > 0.0 ? cash : 0.0;
+    const int buyCapacity = buyCapacityForPosition(position);
+    const int sellCapacity = sellCapacityForPosition(position);
+
+    const int buyPreference = clampInt(kBaseQuoteQty + max(0, -position) / 2 + recentSellFills / 2, 1, kMaxPosition);
+    const int sellPreference = clampInt(kBaseQuoteQty + max(0, position) / 2 + recentBuyFills / 2, 1, kMaxPosition);
+
     const Price buyCostPerShare = max<Price>(1.0, targetBid * (1.0 + fee_rate));
-    const int maxCashBasedQty = buyBudget > 0.0 && buyCostPerShare > 0.0
-        ? static_cast<int>(floor(buyBudget / buyCostPerShare))
+    const int cashCapacity = cash > 0.0 && buyCostPerShare > 0.0
+        ? static_cast<int>(floor(cash / buyCostPerShare))
         : 0;
-    const int maxQty = min(maxPosition, max(0, maxCashBasedQty));
+
+    const int targetBuyQty = min({buyCapacity, buyPreference, cashCapacity});
+    const int targetSellQty = min(sellCapacity, sellPreference);
 
     vector<OrderCommand> commands;
-    const bool hasBid = any_of(openOrders.begin(), openOrders.end(), [](const Order& order) {
-        return order.side == Side::Buy;
-    });
-    const bool hasAsk = any_of(openOrders.begin(), openOrders.end(), [](const Order& order) {
-        return order.side == Side::Sell;
-    });
+    const auto currentBid = bestOpenOrder(openOrders, Side::Buy);
+    const auto currentAsk = bestOpenOrder(openOrders, Side::Sell);
 
-    if (!hasBid && positionDelta > 0) {
-        const int qty = min(maxQty, positionDelta);
-        if (qty > 0) {
-            commands.push_back(makeAddOrder(Side::Buy, qty, targetBid));
+    if (targetBuyQty <= 0) {
+        if (currentBid.has_value()) {
+            commands.push_back(makeCancelOrder(currentBid->id, Side::Buy));
+        }
+    } else if (!currentBid.has_value()) {
+        commands.push_back(makeAddOrder(Side::Buy, targetBuyQty, targetBid));
+    } else if (currentBid->quantity != targetBuyQty || fabs(currentBid->limit_price - targetBid) > tick * 0.75) {
+        commands.push_back(makeModifyOrder(currentBid->id, Side::Buy, targetBuyQty, targetBid));
+    }
+
+    const bool keepCurrentAsk = currentAsk.has_value()
+        && targetSellQty > 0
+        && currentAsk->quantity == targetSellQty
+        && fabs(currentAsk->limit_price - targetAsk) <= tick * 0.75;
+
+    for (const auto& order : openOrders) {
+        if (order.side == Side::Sell && (!keepCurrentAsk || order.id != currentAsk->id)) {
+            commands.push_back(makeCancelOrder(order.id, Side::Sell));
         }
     }
 
-    if (!hasAsk && positionDelta < 0) {
-        const int qty = min(maxQty, -positionDelta);
-        if (qty > 0) {
-            commands.push_back(makeAddOrder(Side::Sell, qty, targetAsk));
-        }
+    if (targetSellQty > 0 && !keepCurrentAsk) {
+        commands.push_back(makeAddOrder(Side::Sell, targetSellQty, targetAsk));
     }
 
     if (commands.empty()) {

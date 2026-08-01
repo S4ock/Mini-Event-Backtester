@@ -48,4 +48,5 @@ class Backtest {
         priority_queue<OrderCommand, vector<OrderCommand>, OrderCommandCompare> eventPool_;
         vector<OrderEvent> recent_order_events_; 
         unordered_map<OrderId,int> orderQuantities_; //used for the modify command
+        unordered_map<OrderId,bool> usedOrderIds_; //used to track if an orderId has been used before
 };  

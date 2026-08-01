@@ -13,6 +13,10 @@ vector<Order> Portfolio::getOpenOrders() const {
     return vector<Order>(orders_.begin(), orders_.end());
 }
 
+vector<Fill> Portfolio::getOrderHistory() const {
+    return order_history_;
+}
+
 void Portfolio::applyFill(const Fill& fill) {
     double fee = fill.price * fill.quantity * fee_rate;
     if (fill.side == Side::Buy) {
@@ -31,10 +35,13 @@ void Portfolio::applyFill(const Fill& fill) {
 
     if (it != orders_.end() && it->id == fill.order_id) {
         Order modifiedOrder = *it;
-        modifiedOrder.quantity = it->quantity - fill.quantity;
+        modifiedOrder.quantity = max(0, it->quantity - fill.quantity);
         orders_.erase(it);
-        if(modifiedOrder.quantity)orders_.insert(modifiedOrder);
+        if (modifiedOrder.quantity) {
+            orders_.insert(modifiedOrder);
+        }
     }
+    order_history_.push_back(fill);
 
 }
 
@@ -51,10 +58,12 @@ void Portfolio::modifyOrder(int orderId, Price new_limit_price, int new_quantity
     if (it != orders_.end() && it->id == orderId) {
         Order modifiedOrder = *it;
         modifiedOrder.limit_price = new_limit_price;
-        modifiedOrder.quantity = new_quantity;
+        modifiedOrder.quantity = max(0, new_quantity);
 
         orders_.erase(it);
-        if(modifiedOrder.quantity)orders_.insert(modifiedOrder);
+        if (modifiedOrder.quantity) {
+            orders_.insert(modifiedOrder);
+        }
     }
 }
 
