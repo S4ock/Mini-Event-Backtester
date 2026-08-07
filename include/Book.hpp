@@ -8,11 +8,12 @@ using namespace std;
 class Book{
     public:
         Book();
-        bool addOrder(const Order& order);
-        bool modifyOrder(int orderId,int new_limit_price,int new_quantity);
+        bool addOrder(const Order& order, vector<Fill>* fills = nullptr);
+        bool modifyOrder(int orderId,int new_limit_price,int new_quantity, vector<Fill>* fills = nullptr);
         bool cancelOrder(int orderId);
         Price bestBid() const;
         Price bestAsk() const;
+        vector<Order> getOpenOrders() const;
         vector<Fill> checkCross(Time now, Order order);
     private:
         map<Price, BookLevel> bidLevels_;

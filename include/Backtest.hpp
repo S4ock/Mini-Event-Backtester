@@ -31,8 +31,8 @@ class Backtest {
         void scheduleEvent(const OrderCommand& event);
 
         void applyOrderCommand(Time now, const OrderCommand& command);
-        bool AddOrder(Time now,const OrderCommand& command);
-        bool ModifyOrder(Time now,const OrderCommand& command);
+        bool AddOrder(Time now,const OrderCommand& command, vector<Fill>* fills = nullptr);
+        bool ModifyOrder(Time now,const OrderCommand& command, vector<Fill>* fills = nullptr);
         bool CancelOrder(Time now,const OrderCommand& command);
         optional<OrderEvent> applyFill(Time now,const Fill& fill);
 

@@ -1,23 +1,15 @@
 #include <iostream>
 #include <string>
-#include <vector>
-#include <iomanip>
-#include <cstddef>
-#include "Common.hpp"
 #include "Backtest.hpp"
-#include "Strategy.hpp"
-#include "Book.hpp"
-#include "Portfolio.hpp"
-using namespace std;
-int main(){
+#include "RollingMid.hpp"
+
+int main() {
+    std::string path = "data/AMZN_2012-06-21_34200000_57600000_message_10.csv";
     Book book;
-    Portfolio portfolio;
-    Strategy strategy;
-    string historicalDataPath = "data/SPY_2012-06-21_34200000_37800000_message_50.csv";
-    Time startTime = 34200017459617;
-    Time endTime = 38599959359650;
-    Time strategyLatency = 1000000;
-    Backtest backtest(historicalDataPath, book, strategy, startTime, endTime, strategyLatency);
+    RollingMid strategy;
+    Backtest backtest(path, book, strategy, 34200017459617LL, 57599959359650LL, 1000000LL);
+
     backtest.run();
     backtest.printResults();
+    return 0;
 }

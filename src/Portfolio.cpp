@@ -6,6 +6,21 @@ Portfolio::Portfolio() = default;
 int Portfolio::getPosition() const {
     return position_;
 }
+
+int Portfolio::getEffectivePosition() const {
+    int effective = position_;
+    for (const auto& order : orders_) {
+        if (order.side == Side::Buy) {
+            effective += order.quantity;
+        } else {
+            effective -= order.quantity;
+        }
+    }
+    return effective;
+}
+int Portfolio::getTotalHistoricalPosition() const {
+    return total_historical_position_;
+}
 double Portfolio::getCash() const {
     return cash_;
 }
@@ -21,9 +36,11 @@ void Portfolio::applyFill(const Fill& fill) {
     double fee = fill.price * fill.quantity * fee_rate;
     if (fill.side == Side::Buy) {
         cash_ -= fill.price * fill.quantity + fee;
+        total_historical_position_ += fill.quantity;
         position_ += fill.quantity;
     } else if (fill.side == Side::Sell) {
         cash_ += fill.price * fill.quantity - fee;
+        total_historical_position_ -= fill.quantity;
         position_ -= fill.quantity;
     }
     //editing the existing order to take in consideration the filled quantity

@@ -1,7 +1,8 @@
-#include "../include/Strategy.hpp"
+#include "../include/RollingMid.hpp"
 #include <algorithm>
 #include <cmath>
 #include <deque>
+#include <iostream>
 using namespace std;
 
 constexpr int kMaxPosition = 10;
@@ -118,17 +119,20 @@ OrderCommand makeModifyOrder(OrderId orderId, Side side, int quantity, Price lim
     return command;
 }
 
-int buyCapacityForPosition(int position) {
-    return max(0, kMaxPosition - position);
+int buyCapacityForPosition(int effectivePosition) {
+    return max(0, kMaxPosition - effectivePosition);
 }
 
-int sellCapacityForPosition(int position) {
-    return max(0, position - 1);
+int sellCapacityForPosition(int effectivePosition) {
+    return max(0, effectivePosition - 1);
 }
 
-optional<vector<OrderCommand>> Strategy::onTimeMove(const Time& now, const Book& book, const Portfolio& portfolio, const vector<OrderEvent>& recent_events) {
+int computeEffectivePosition(const Portfolio& portfolio) {
+    return portfolio.getEffectivePosition();
+}
+
+optional<vector<OrderCommand>> RollingMid::onTimeMove(const Time& now, const Book& book, const Portfolio& portfolio, const vector<OrderEvent>& recent_events) {
     static deque<Price> midHistory;
-
     const Price bestBid = book.bestBid();
     const Price bestAsk = book.bestAsk();
     const Price mid = safeMid(bestBid, bestAsk, midMean_);
@@ -143,6 +147,7 @@ optional<vector<OrderCommand>> Strategy::onTimeMove(const Time& now, const Book&
 
     const auto openOrders = portfolio.getOpenOrders();
     const int position = portfolio.getPosition();
+    const int effectivePosition = computeEffectivePosition(portfolio);
     const Price cash = portfolio.getCash();
 
     const Price shortMean = shortTermMean(midHistory);
@@ -172,7 +177,7 @@ optional<vector<OrderCommand>> Strategy::onTimeMove(const Time& now, const Book&
         }
     }
 
-    const Price inventoryRatio = clamp<Price>(static_cast<Price>(position) / static_cast<Price>(kMaxPosition), -1.0, 1.0);
+    const Price inventoryRatio = clamp<Price>(static_cast<Price>(effectivePosition) / static_cast<Price>(kMaxPosition), -1.0, 1.0);
     const Price flowRatio = clamp<Price>(static_cast<Price>(recentBuyFills - recentSellFills) / static_cast<Price>(kMaxPosition), -1.0, 1.0);
     const Price centerShift = (inventoryRatio * 0.9 + flowRatio * 0.4) * halfSpread;
 
@@ -191,19 +196,32 @@ optional<vector<OrderCommand>> Strategy::onTimeMove(const Time& now, const Book&
         targetAsk = clampPrice(fairValue + tick);
     }
 
-    const int buyCapacity = buyCapacityForPosition(position);
-    const int sellCapacity = sellCapacityForPosition(position);
+    const int buyCapacity = buyCapacityForPosition(effectivePosition);
+    const int sellCapacity = sellCapacityForPosition(effectivePosition);
 
-    const int buyPreference = clampInt(kBaseQuoteQty + max(0, -position) / 2 + recentSellFills / 2, 1, kMaxPosition);
-    const int sellPreference = clampInt(kBaseQuoteQty + max(0, position) / 2 + recentBuyFills / 2, 1, kMaxPosition);
+    const int buyPreference = clampInt(kBaseQuoteQty + max(0, -effectivePosition) / 2 + recentSellFills / 2, 1, kMaxPosition);
+    const int sellPreference = clampInt(kBaseQuoteQty + max(0, effectivePosition) / 2 + recentBuyFills / 2, 1, kMaxPosition);
 
     const Price buyCostPerShare = max<Price>(1.0, targetBid * (1.0 + fee_rate));
     const int cashCapacity = cash > 0.0 && buyCostPerShare > 0.0
         ? static_cast<int>(floor(cash / buyCostPerShare))
         : 0;
 
-    const int targetBuyQty = min({buyCapacity, buyPreference, cashCapacity});
-    const int targetSellQty = min(sellCapacity, sellPreference);
+    int targetBuyQty = max(0, min({buyCapacity, buyPreference, cashCapacity}));
+    int targetSellQty = max(0, min({sellCapacity, sellPreference}));
+
+    if (targetBuyQty == 0 && targetSellQty == 0 && effectivePosition == 0 && cash > 0.0) {
+        targetBuyQty = min(kBaseQuoteQty, buyCapacity);
+        targetSellQty = min(kBaseQuoteQty, sellCapacity);
+    }
+
+    if (effectivePosition > 0) {
+        const int reduction = min(targetSellQty, effectivePosition);
+        targetSellQty = reduction;
+    } else if (effectivePosition < 0) {
+        const int reduction = min(targetBuyQty, -effectivePosition);
+        targetBuyQty = reduction;
+    }
 
     vector<OrderCommand> commands;
     const auto currentBid = bestOpenOrder(openOrders, Side::Buy);
@@ -237,6 +255,5 @@ optional<vector<OrderCommand>> Strategy::onTimeMove(const Time& now, const Book&
     if (commands.empty()) {
         return nullopt;
     }
-
     return commands;
 }

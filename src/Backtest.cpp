@@ -1,6 +1,8 @@
 #include "Backtest.hpp"
+#include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <numeric>
 #include <sstream>
 #include <stdexcept>
 using namespace std;
@@ -73,7 +75,7 @@ void Backtest::load_historical_data(string historicalDataPath) {
     }
 }
 
-bool Backtest::AddOrder(Time now, const OrderCommand& command) {
+bool Backtest::AddOrder(Time now, const OrderCommand& command, vector<Fill>* fills) {
     Order order;
     order.owner_id = command.owner_id;
     order.side = command.side;
@@ -81,13 +83,13 @@ bool Backtest::AddOrder(Time now, const OrderCommand& command) {
     order.limit_price = command.limit_price;
     order.id = command.order_id;
     order.ts = now;
-    bool worked=book_.addOrder(order);
+    bool worked=book_.addOrder(order, fills);
     orderQuantities_[order.id] = order.quantity;
     if(worked && command.owner_id==1)portfolio_.addOrder(order);
     return worked;
 }
 
-bool Backtest::ModifyOrder(Time now, const OrderCommand& command) {
+bool Backtest::ModifyOrder(Time now, const OrderCommand& command, vector<Fill>* fills) {
     int nextQuantity = command.new_quantity;
 
     if (command.owner_id != 1) {
@@ -97,7 +99,7 @@ bool Backtest::ModifyOrder(Time now, const OrderCommand& command) {
         nextQuantity = max(0, currentQuantity - cancelledQuantity);
     }
 
-    bool worked = book_.modifyOrder(command.order_id, command.new_limit_price, nextQuantity);
+    bool worked = book_.modifyOrder(command.order_id, command.new_limit_price, nextQuantity, fills);
 
     if (worked) {
         orderQuantities_[command.order_id] = nextQuantity;
@@ -115,13 +117,28 @@ bool Backtest::CancelOrder(Time now, const OrderCommand& command) {
     return worked;
 }
 optional<OrderEvent> Backtest::applyFill(Time now, const Fill& fill) {
-    orderQuantities_[fill.order_id] -= fill.quantity;
-    if(orderQuantities_[fill.order_id] <= 0) {
-        orderQuantities_.erase(fill.order_id);
+    auto quantityIt = orderQuantities_.find(fill.order_id);
+    if (quantityIt != orderQuantities_.end()) {
+        quantityIt->second -= fill.quantity;
+        if (quantityIt->second <= 0) {
+            orderQuantities_.erase(quantityIt);
+        }
     }
-    if(fill.owner_id==1){
+
+    if (fill.owner_id == 1) {
         portfolio_.applyFill(fill);
-        return optional<OrderEvent>{OrderEvent{now, OrderEventType::OrderFilled, fill.owner_id, fill.order_id, fill.side, fill.quantity, orderQuantities_[fill.order_id], fill.price}};
+        const int remainingQuantity = orderQuantities_.count(fill.order_id) ? orderQuantities_[fill.order_id] : 0;
+        return optional<OrderEvent>{OrderEvent{now, OrderEventType::OrderFilled, fill.owner_id, fill.order_id, fill.side, fill.quantity, remainingQuantity, fill.price}};
+    }
+
+    if (fill.order_id != 0) {
+        const auto orderIt = orderQuantities_.find(fill.order_id);
+        if (orderIt != orderQuantities_.end()) {
+            orderIt->second = max(0, orderIt->second - fill.quantity);
+            if (orderIt->second <= 0) {
+                orderQuantities_.erase(orderIt);
+            }
+        }
     }
     return nullopt;
 }
@@ -131,13 +148,17 @@ void Backtest::scheduleEvent(const OrderCommand& event) {
 void Backtest::applyOrderCommand(Time now, const OrderCommand& command) {
     switch (command.type) {
         case OrderCommandType::AddOrder: {
-            bool worked=AddOrder(now_,command);
+            vector<Fill> fills;
+            bool worked=AddOrder(now_,command,&fills);
             if(command.owner_id==1){
                 recent_order_events_.push_back(OrderEvent{now_, worked?OrderEventType::OrderAccepted:OrderEventType::OrderRejected, command.owner_id, command.order_id, command.side, command.quantity, orderQuantities_[command.order_id], command.limit_price});
             }
-            auto fills=book_.checkCross(now_,Order{command.order_id,command.owner_id,now_,command.side,command.quantity,command.limit_price});
             for(const auto& fill:fills){
-                auto order_event=applyFill(now_,fill);
+                Fill normalizedFill = fill;
+                if (normalizedFill.order_id == command.order_id && normalizedFill.owner_id == command.owner_id) {
+                    normalizedFill.side = command.side;
+                }
+                auto order_event=applyFill(now_,normalizedFill);
                 if(order_event.has_value()){
                     recent_order_events_.push_back(order_event.value());
                 }
@@ -145,13 +166,17 @@ void Backtest::applyOrderCommand(Time now, const OrderCommand& command) {
             break;
         }
         case OrderCommandType::ModifyOrder: {
-            bool worked=ModifyOrder(now_,command);
+            vector<Fill> fills;
+            bool worked=ModifyOrder(now_,command,&fills);
             if(command.owner_id==1){
                 recent_order_events_.push_back(OrderEvent{now_, worked?OrderEventType::OrderModified:OrderEventType::OrderModifyFailed, command.owner_id, command.order_id, command.side, command.new_quantity, orderQuantities_[command.order_id], command.new_limit_price});
             }
-            auto fills=book_.checkCross(now_,Order{command.order_id,command.owner_id,now_,command.side,orderQuantities_[command.order_id],command.new_limit_price});
             for(const auto& fill:fills){
-                auto order_event=applyFill(now_,fill);
+                Fill normalizedFill = fill;
+                if (normalizedFill.order_id == command.order_id && normalizedFill.owner_id == command.owner_id) {
+                    normalizedFill.side = command.side;
+                }
+                auto order_event=applyFill(now_,normalizedFill);
                 if(order_event.has_value()){
                     recent_order_events_.push_back(order_event.value());
                 }
@@ -163,13 +188,6 @@ void Backtest::applyOrderCommand(Time now, const OrderCommand& command) {
             if(command.owner_id==1){
                 recent_order_events_.push_back(OrderEvent{now_, worked?OrderEventType::OrderCancelled:OrderEventType::OrderCancelFailed, command.owner_id, command.order_id, command.side, command.quantity, orderQuantities_[command.order_id], command.limit_price});
             }
-            auto fills=book_.checkCross(now_,Order{command.order_id,command.owner_id,now_,command.side,orderQuantities_[command.order_id],command.limit_price});
-            for(const auto& fill:fills){
-                auto order_event=applyFill(now_,fill);
-                if(order_event.has_value()){
-                    recent_order_events_.push_back(order_event.value());
-                }
-            }
             break;
         }
     }
@@ -179,15 +197,26 @@ void Backtest::run() {
     for(Time i=startTime_;i<=endTime_;i=eventPool_.empty()?endTime_+1:eventPool_.top().ts){
         recent_order_events_.clear();
         now_=i;
+
+        vector<OrderCommand> currentCommands;
         while(!eventPool_.empty() && eventPool_.top().ts<=now_){
-            OrderCommand command=eventPool_.top();
+            currentCommands.push_back(eventPool_.top());
             eventPool_.pop();
-            applyOrderCommand(now_,command);
         }
+
+        for (const auto& command : currentCommands) {
+            applyOrderCommand(now_, command);
+        }
+
         auto new_commands=strategy_.onTimeMove(now_,book_,portfolio_,recent_order_events_);
         if(new_commands.has_value()){
+            vector<OrderCommand> delayedCommands;
+            delayedCommands.reserve(new_commands->size());
             for(auto& new_command:new_commands.value()){
                 new_command.ts = now_ + strategyLatency_;
+                if (new_command.type == OrderCommandType::AddOrder && new_command.quantity <= 0) {
+                    continue;
+                }
                 if(new_command.type==OrderCommandType::AddOrder){
                     while(usedOrderIds_.find(nextOrderId_)!=usedOrderIds_.end()){
                         nextOrderId_++;
@@ -195,7 +224,10 @@ void Backtest::run() {
                     new_command.order_id=nextOrderId_;
                     usedOrderIds_[nextOrderId_]=true;
                 }
-                eventPool_.push(new_command);
+                delayedCommands.push_back(new_command);
+            }
+            for (auto& delayedCommand : delayedCommands) {
+                eventPool_.push(delayedCommand);
             }
         }
     }
@@ -203,11 +235,12 @@ void Backtest::run() {
 
 void Backtest::printResults() {
     cout << "Final Cash: " << portfolio_.getCash() << endl;
-    cout << "Final Position: " << portfolio_.getPosition() << endl;
+    cout << "Final Position: " << portfolio_.getEffectivePosition() << endl;
     cout << "Best bid: " << book_.bestBid() << endl;
     cout << "Best ask: " << book_.bestAsk() << endl;
-    cout << "Open Orders: " << endl;
-    cout<< "Final estimated money: "<<portfolio_.getCash() + portfolio_.getPosition() *book_.bestBid()<<endl;
+    cout << "Portfolio open orders: " << endl;
+    cout << "Final estimated money: " << portfolio_.getCash() + portfolio_.getPosition() * book_.bestBid() << endl;
+    cout << "Total historical position: " << portfolio_.getTotalHistoricalPosition() << endl;
     for (const auto& order : portfolio_.getOpenOrders()) {
         cout << "Order ID: " << order.id
              << ", Side: " << (order.side == Side::Buy ? "Buy" : "Sell")
@@ -215,6 +248,15 @@ void Backtest::printResults() {
              << ", Limit Price: " << order.limit_price
              << endl;
     }
+
+    /*cout << "Book resting orders: " << endl;
+    for (const auto& order : book_.getOpenOrders()) {
+        cout << "Order ID: " << order.id
+             << ", Side: " << (order.side == Side::Buy ? "Buy" : "Sell")
+             << ", Quantity: " << order.quantity
+             << ", Limit Price: " << order.limit_price
+             << endl;
+    }*/
     /*cout << "Fill History: " << endl;
     for (const auto& fill : portfolio_.getOrderHistory()) {
         cout << "Time: " << fill.ts
